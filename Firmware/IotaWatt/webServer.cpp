@@ -1,5 +1,8 @@
 #include "IotaWatt.h"
 #include "uploaders/Uploader_Registry.h"
+#if LWIP_IPV6
+#include <AddrList.h>
+#endif
 
 
 /*
@@ -530,6 +533,8 @@ void handleStatus(){
       trace(T_WEB,14);
       stats.set(F("stack"),ESP.getFreeHeap());
       trace(T_WEB,14);
+      stats.set(F("maxblock"),ESP.getMaxFreeBlockSize());
+      trace(T_WEB,14);
       stats.set(F("version"),IOTAWATT_VERSION);
       trace(T_WEB,14);
       stats.set(F("frequency"),frequency);
@@ -663,6 +668,15 @@ void handleStatus(){
         String ip = WiFi.localIP().toString();
         wifi.set(F("IP"),ip);
         //Serial.printf("SSID: %s, IP: %s\r\n", WiFi.SSID().c_str(), ip.c_str());
+#if LWIP_IPV6
+        for (auto entry : addrList){
+          if(entry.isV6() && !entry.isLocal() && entry.ifUp()){
+            String ipv6 = entry.addr().toString();
+            wifi.set(F("IPv6"),ipv6);
+            break;
+          }
+        }
+#endif
         wifi.set(F("channel"),WiFi.channel());
         wifi.set(F("RSSI"),WiFi.RSSI());
         wifi.set(F("mac"), WiFi.macAddress());
