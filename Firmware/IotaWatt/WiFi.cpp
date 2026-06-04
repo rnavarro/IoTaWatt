@@ -11,7 +11,6 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
   static bool mDNSstarted = false;
   static bool LLMNRstarted = false;
 #if LWIP_IPV6
-  static IPAddress ipv6Global;                      // Last logged global IPv6 address
   static uint32_t ipv6LastPoll = 0;                 // Last SLAAC poll time
 #endif
 
@@ -21,9 +20,9 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
     if(!wifiConnectTime){
       trace(T_WiFi,1);
       wifiConnectTime = UTCtime();
-      localIP = WiFi.localIP();
-      gatewayIP = WiFi.gatewayIP();
-      subnetMask = WiFi.subnetMask();
+      localIPv4 = WiFi.localIP();
+      gatewayIPv4 = WiFi.gatewayIP();
+      subnetMaskIPv4 = WiFi.subnetMask();
       WiFi.hostname(deviceName);
       log("WiFi connected. SSID=%s, IP=%s, channel=%d, RSSI %ddb", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.channel(), WiFi.RSSI());
     }
@@ -46,14 +45,14 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
         // DHCP, and there is no got-IPv6 event on the ESP8266. Poll every
         // dispatch until one appears, then every 60 seconds for prefix
         // changes (ISP renumbering, RA changes after AP reconnect).
-    if( ! ipv6Global.isSet() || (UTCtime() - ipv6LastPoll) >= 60){
+    if( ! localIPv6.isSet() || (UTCtime() - ipv6LastPoll) >= 60){
       ipv6LastPoll = UTCtime();
       for (auto entry : addrList){
         if(entry.isV6() && !entry.isLocal() && entry.ifUp()){
           IPAddress current = entry.addr();
-          if(current != ipv6Global){
-            ipv6Global = current;
-            log("WiFi: IPv6 global address %s", ipv6Global.toString().c_str());
+          if(current != localIPv6){
+            localIPv6 = current;
+            log("WiFi: IPv6 global address %s", localIPv6.toString().c_str());
           }
           break;
         }
@@ -68,7 +67,7 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       wifiConnectTime = 0;
       lastDisconnect = UTCtime();
 #if LWIP_IPV6
-      ipv6Global = IPAddress();                     // Re-detect (and re-log) after reconnect:
+      localIPv6 = IPAddress();                      // Re-detect (and re-log) after reconnect:
       ipv6LastPoll = 0;                             // SLAAC recovery is not event-driven
 #endif
       log("WiFi disconnected.");

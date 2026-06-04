@@ -19,8 +19,8 @@ bool auth(authLevel level){
 
   IPAddress remoteIP = server.client().remoteIP();
   if(localAccess && remoteIP.isV4()){
-    uint32_t localSubnet = subnetMask & localIP;
-    uint32_t remoteSubnet = subnetMask & (uint32_t)remoteIP;
+    uint32_t localSubnet = (uint32_t)subnetMaskIPv4 & (uint32_t)localIPv4;
+    uint32_t remoteSubnet = (uint32_t)subnetMaskIPv4 & (uint32_t)remoteIP;
     if(localSubnet == remoteSubnet){
       return true;
     }

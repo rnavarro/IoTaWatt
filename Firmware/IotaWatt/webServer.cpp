@@ -665,7 +665,7 @@ void handleStatus(){
       wifi.set(F("connecttime"),wifiConnectTime);
       if(wifiConnectTime){
         wifi.set(F("SSID"),WiFi.SSID());
-        String ip = WiFi.localIP().toString();
+        String ip = localIPv4.toString();
         wifi.set(F("IP"),ip);
         //Serial.printf("SSID: %s, IP: %s\r\n", WiFi.SSID().c_str(), ip.c_str());
 #if LWIP_IPV6

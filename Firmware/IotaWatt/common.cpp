@@ -203,9 +203,10 @@ bool getNewConfig = false;                // process new configuration file;
 
       // ******************* WiFi connection  *************************************
 
-uint32_t subnetMask;
-uint32_t gatewayIP;
-uint32_t localIP;
+IPAddress subnetMaskIPv4;
+IPAddress gatewayIPv4;
+IPAddress localIPv4;
+IPAddress localIPv6;
 
 uint8_t*          adminH1 = nullptr;      // H1 digest md5("admin":"admin":password) 
 uint8_t*          userH1 = nullptr;       // H1 digest md5("user":"user":password)

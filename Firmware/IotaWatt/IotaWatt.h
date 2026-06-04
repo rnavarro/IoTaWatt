@@ -248,9 +248,10 @@ extern int32_t uploaderBufferTotal;       // Total aggregate target of uploader 
 
       // ******************* WiFi connection  *************************************
 
-extern uint32_t subnetMask;
-extern uint32_t gatewayIP;
-extern uint32_t localIP;
+extern IPAddress subnetMaskIPv4;
+extern IPAddress gatewayIPv4;
+extern IPAddress localIPv4;
+extern IPAddress localIPv6;
 
 // ******************* Password and authorization data *************************************
 
