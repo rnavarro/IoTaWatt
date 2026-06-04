@@ -13,11 +13,17 @@ bool auth(authLevel level){
 
         // If no passwords or authorization not required, return true
 
-  uint32_t remoteIP = server.client().remoteIP();
-  uint32_t localSubnet = subnetMask & localIP;
-  uint32_t remoteSubnet = subnetMask & remoteIP;
-  if(localAccess && (localSubnet == remoteSubnet)){
-    return true;
+        // The localAccess subnet bypass is an IPv4 comparison. IPv6 clients
+        // (possible once lwIP is built with LWIP_IPV6) skip the bypass and
+        // authenticate with a password like any remote client.
+
+  IPAddress remoteIP = server.client().remoteIP();
+  if(localAccess && remoteIP.isV4()){
+    uint32_t localSubnet = subnetMask & localIP;
+    uint32_t remoteSubnet = subnetMask & (uint32_t)remoteIP;
+    if(localSubnet == remoteSubnet){
+      return true;
+    }
   }
 
   if(!adminH1 || level == authNone){
