@@ -93,6 +93,16 @@ boolean setConfig(const char* configPath){
   delete[] updateClass;
   updateClass = charstar(Config[F("update")] | "NONE");
 
+#if LWIP_IPV6
+        // Outbound DNS family preference for uploaders (web server is
+        // always dual-stack, NTP is pinned to IPv4). Default v4-first;
+        // "dnsprefer": "v6" selects AAAA-first with happy-eyeballs-lite
+        // fallback in ESPAsyncTCP.
+  const char* dnsPrefer = Config[F("dnsprefer")] | "v4";
+  AsyncClient::setDnsAddrType(strcmp(dnsPrefer, "v6") == 0 ?
+      LWIP_DNS_ADDRTYPE_IPV6_IPV4 : LWIP_DNS_ADDRTYPE_IPV4_IPV6);
+#endif
+
   localTimeDiff = 60.0 * Config[F("timezone")].as<float>();
     
   if(Config.containsKey("logdays")){ 
