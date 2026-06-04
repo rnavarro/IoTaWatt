@@ -2,6 +2,9 @@
 #include <libb64/cencode.h>
 #include "detail/mimetable.h"
 #include "auth.h"
+#if LWIP_IPV6
+#include <lwip/ip6_addr.h>
+#endif
 
 static const char AUTH_HEADER[] PROGMEM = "Authorization";
 static const char qop_authquote[] PROGMEM = "qop=\"auth\"";
@@ -13,17 +16,29 @@ bool auth(authLevel level){
 
         // If no passwords or authorization not required, return true
 
-        // The localAccess subnet bypass is an IPv4 comparison. IPv6 clients
-        // (possible once lwIP is built with LWIP_IPV6) skip the bypass and
-        // authenticate with a password like any remote client.
-
   IPAddress remoteIP = server.client().remoteIP();
-  if(localAccess && remoteIP.isV4()){
-    uint32_t localSubnet = (uint32_t)subnetMaskIPv4 & (uint32_t)localIPv4;
-    uint32_t remoteSubnet = (uint32_t)subnetMaskIPv4 & (uint32_t)remoteIP;
-    if(localSubnet == remoteSubnet){
-      return true;
+  if(localAccess){
+    if(remoteIP.isV4()){
+      uint32_t localSubnet = (uint32_t)subnetMaskIPv4 & (uint32_t)localIPv4;
+      uint32_t remoteSubnet = (uint32_t)subnetMaskIPv4 & (uint32_t)remoteIP;
+      if(localSubnet == remoteSubnet){
+        return true;
+      }
     }
+#if LWIP_IPV6
+        // IPv6 same-/64-prefix bypass mirrors the IPv4 same-subnet logic.
+        // SLAAC always assigns /64 prefixes; ip6_addr_netcmp() compares the
+        // first 64 bits (addr[0] and addr[1]). Link-local clients are
+        // excluded: any device on any WiFi shares fe80::/10, so allowing
+        // them would bypass auth for the whole radio cell.
+    else if(localIPv6.isSet() && !remoteIP.isLocal()){
+      const ip6_addr_t* local  = ip_2_ip6((const ip_addr_t*)localIPv6);
+      const ip6_addr_t* remote = ip_2_ip6((const ip_addr_t*)remoteIP);
+      if(ip6_addr_netcmp(local, remote)){
+        return true;
+      }
+    }
+#endif
   }
 
   if(!adminH1 || level == authNone){
