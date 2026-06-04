@@ -2,15 +2,6 @@
 #include "ESP8266mDNS.h"
 #include <ESP8266LLMNR.h>
 
-struct tcp_pcb {
-  uint32_t ip_pcba;
-  uint32_t ip_pcbb;
-  uint32_t ip_pcbc;
-  tcp_pcb* next;
-};
-extern struct tcp_pcb* tcp_tw_pcbs;
-extern "C" void tcp_abort(struct tcp_pcb* pcb);
-
 uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
   static uint32_t lastDisconnect = UTCtime();       // Time of last disconnect
   const uint32_t restartInterval = 60*60;           // Restart if disconnected this many seconds
