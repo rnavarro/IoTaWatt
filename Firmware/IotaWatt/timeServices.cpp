@@ -92,8 +92,15 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
 
   trace(T_timeSync, 31);
   String serverName("time1.google.com");
-  serverName[4] += (++serverIndex % 4);    
+  serverName[4] += (++serverIndex % 4);
+        // The Google time servers have AAAA records. Pin resolution to A
+        // records on dual-stack builds: NTP here runs over WiFiUDP, whose
+        // pcb is IPv4-typed, so an IPv6 answer would fail to send.
+#if LWIP_IPV4 && LWIP_IPV6
+  if(WiFi.hostByName(serverName.c_str(), timeServerIP, 10000, DNSResolveType::DNS_AddrType_IPv4) == 1){
+#else
   if(WiFi.hostByName(serverName.c_str(), timeServerIP) == 1){    // get a random server from the pool
+#endif
     trace(T_timeSync, 32);
     ntpPacket packet;
     sendMillis = millis();
