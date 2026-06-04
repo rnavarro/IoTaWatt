@@ -1,12 +1,19 @@
 #include "IotaWatt.h"
 #include "ESP8266mDNS.h"
 #include <ESP8266LLMNR.h>
+#if LWIP_IPV6
+#include <AddrList.h>
+#endif
 
 uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
   static uint32_t lastDisconnect = UTCtime();       // Time of last disconnect
   const uint32_t restartInterval = 60*60;           // Restart if disconnected this many seconds
   static bool mDNSstarted = false;
   static bool LLMNRstarted = false;
+#if LWIP_IPV6
+  static IPAddress ipv6Global;                      // Last logged global IPv6 address
+  static uint32_t ipv6LastPoll = 0;                 // Last SLAAC poll time
+#endif
 
   trace(T_WiFi,0);
   if(WiFi.status() == WL_CONNECTED){
@@ -32,8 +39,27 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
     if( ! LLMNRstarted){
       if (LLMNR.begin(deviceName)){
         LLMNRstarted = true;
-      } 
+      }
     }
+#if LWIP_IPV6
+        // SLAAC assigns global IPv6 addresses asynchronously, seconds after
+        // DHCP, and there is no got-IPv6 event on the ESP8266. Poll every
+        // dispatch until one appears, then every 60 seconds for prefix
+        // changes (ISP renumbering, RA changes after AP reconnect).
+    if( ! ipv6Global.isSet() || (UTCtime() - ipv6LastPoll) >= 60){
+      ipv6LastPoll = UTCtime();
+      for (auto entry : addrList){
+        if(entry.isV6() && !entry.isLocal() && entry.ifUp()){
+          IPAddress current = entry.addr();
+          if(current != ipv6Global){
+            ipv6Global = current;
+            log("WiFi: IPv6 global address %s", ipv6Global.toString().c_str());
+          }
+          break;
+        }
+      }
+    }
+#endif
   }
   else {
     trace(T_WiFi,2);
@@ -41,6 +67,10 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       trace(T_WiFi,2);
       wifiConnectTime = 0;
       lastDisconnect = UTCtime();
+#if LWIP_IPV6
+      ipv6Global = IPAddress();                     // Re-detect (and re-log) after reconnect:
+      ipv6LastPoll = 0;                             // SLAAC recovery is not event-driven
+#endif
       log("WiFi disconnected.");
     }
     else if((UTCtime() - lastDisconnect) >= restartInterval){
