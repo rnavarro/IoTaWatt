@@ -183,7 +183,6 @@ declare_uploaders();
 
 //*************************************** Start the WiFi  connection *****************************
   WiFi.hostname(deviceName);
-  WiFi.setAutoConnect(true);
   WiFi.setAutoReconnect(true);
   WiFi.begin();
   if(WiFi.status() != WL_CONNECTED){
