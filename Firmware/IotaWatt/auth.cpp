@@ -30,12 +30,19 @@ bool auth(authLevel level){
         // SLAAC always assigns /64 prefixes; ip6_addr_netcmp() compares the
         // first 64 bits (addr[0] and addr[1]). Link-local clients are
         // excluded: any device on any WiFi shares fe80::/10, so allowing
-        // them would bypass auth for the whole radio cell.
-    else if(localIPv6.isSet() && !remoteIP.isLocal()){
-      const ip6_addr_t* local  = ip_2_ip6((const ip_addr_t*)localIPv6);
+        // them would bypass auth for the whole radio cell. We use
+        // ip6_addr_islinklocal() directly instead of IPAddress::isLocal()
+        // because isLocal() may not detect IPv6 link-local on all cores.
+    else if(localIPv6.isSet()){
       const ip6_addr_t* remote = ip_2_ip6((const ip_addr_t*)remoteIP);
-      if(ip6_addr_netcmp(local, remote)){
-        return true;
+      if(ip6_addr_islinklocal(remote)){
+        // Reject link-local: same /64 match would let any WiFi peer in.
+      }
+      else {
+        const ip6_addr_t* local = ip_2_ip6((const ip_addr_t*)localIPv6);
+        if(ip6_addr_netcmp(local, remote)){
+          return true;
+        }
       }
     }
 #endif

@@ -117,7 +117,7 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
   static uint32_t lastNTPupdate = 0;
   static bool started = false;
   static uint32_t prevDiff = 0;
-  static IPAddress prevIP;
+  static ip_addr_t prevIP = {};
   static uint8_t  serverIndex = 0;
   static uint32_t sendMillis = 0;
   static uint32_t origin_sec = 0;
@@ -222,7 +222,7 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
   trace(T_timeSync, 5);
   uint32_t recvMillis = ntpRecvMillis;
   ntpPacket packet = ntpRespPacket;
-  IPAddress timeServerIP(ntpServerAddr);
+  const ip_addr_t* timeServerIP = &ntpServerAddr;
   size_t packetSize = sizeof(ntpPacket);
   ntpCleanup();
   packet.recv_ts_sec = littleEndian(packet.recv_ts_sec);
@@ -242,7 +242,7 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
   trace(T_timeSync, 7);
   if(packet.stratum == 0){
     log("timesync: Kiss-o'-Death, code %c%c%c%c, ip: %s", 
-    packet.referenceID[0], packet.referenceID[1], packet.referenceID[2], packet.referenceID[3], timeServerIP.toString().c_str());
+    packet.referenceID[0], packet.referenceID[1], packet.referenceID[2], packet.referenceID[3], ipaddr_ntoa(timeServerIP));
     return UTCtime() + (RTCrunning ? 60 : 15);
   } 
 
@@ -270,16 +270,16 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
   if(presDiff != prevDiff){
     trace(T_timeSync, 91);
     prevDiff = presDiff; 
-    prevIP = timeServerIP;
+    ip_addr_copy(prevIP, *timeServerIP);
     return UTCtime() + (RTCrunning ? 60 : 1);
   }
   // if(prevDiff){
   //   trace(T_timeSync, 92);
-  //   if(prevIP == timeServerIP){
+  //   if(ip_addr_cmp(&prevIP, timeServerIP)){
   //     trace(T_timeSync, 93);
   //     return UTCtime() + 20;
   //   }
-  //   log("IPs: %s, %s, prevDiff: %d", prevIP.toString().c_str(), timeServerIP.toString().c_str(), prevDiff);
+  //   log("IPs: %s, %s, prevDiff: %d", ipaddr_ntoa(&prevIP), ipaddr_ntoa(timeServerIP), prevDiff);
     //log("packet sec: %u, frac: %u",packet.trans_ts_sec, packet.trans_ts_frac);
     //log("Comput sec: %u, frac: %u, duration: %d", current_ts_sec, current_ts_frac, duration);
   // } 
