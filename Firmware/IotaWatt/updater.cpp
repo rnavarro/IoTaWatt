@@ -25,7 +25,7 @@ uint32_t updater(struct serviceBlock* _serviceBlock) {
   static uint32_t HTTPtoken = 0;
 
   trace(T_UPDATE,0); 
-  if( ! WiFi.isConnected()){
+  if( ! wifiIsOperational()){
     return UTCtime() + 1;
   }
 
@@ -69,7 +69,7 @@ uint32_t updater(struct serviceBlock* _serviceBlock) {
 
     case getVersion: {
       trace(T_UPDATE,3); 
-      if( ! WiFi.isConnected()){
+      if( ! wifiIsOperational()){
         return UTCtime() + 1;
       }
       HTTPtoken = HTTPreserve(T_UPDATE);
@@ -200,7 +200,7 @@ uint32_t updater(struct serviceBlock* _serviceBlock) {
       
     case download: {
       trace(T_UPDATE,6);   
-      if( ! WiFi.isConnected()){
+      if( ! wifiIsOperational()){
         return UTCtime() + 1;
       }
       HTTPtoken = HTTPreserve(T_UPDATE, true);
@@ -280,7 +280,7 @@ uint32_t updater(struct serviceBlock* _serviceBlock) {
 
     case getTable: {
       trace(T_UPDATE,10); 
-      if( ! WiFi.isConnected()){
+      if( ! wifiIsOperational()){
         return UTCtime() + 1;
       }
       HTTPtoken = HTTPreserve(T_UPDATE);

@@ -164,7 +164,7 @@ uint32_t Uploader::handle_HTTPpost_s(){
     // just return.
 
     trace(T_uploader,120);
-    if( ! WiFi.isConnected()){
+    if( ! wifiIsOperational()){
         return UTCtime() + 1;
     }
 

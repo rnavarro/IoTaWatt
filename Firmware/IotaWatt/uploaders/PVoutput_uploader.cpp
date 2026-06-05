@@ -541,7 +541,7 @@ void PVoutput_uploader::HTTPPost(const __FlashStringHelper *URI, states completi
 
 uint32_t PVoutput_uploader::handle_HTTPpost_s(){
     trace(T_PVoutput,110);
-    if( ! WiFi.isConnected()){
+    if( ! wifiIsOperational()){
         return UTCtime() + 1;
     }
 

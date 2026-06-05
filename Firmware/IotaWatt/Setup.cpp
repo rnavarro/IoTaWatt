@@ -185,7 +185,7 @@ declare_uploaders();
   WiFi.hostname(deviceName);
   WiFi.setAutoReconnect(true);
   WiFi.begin();
-  if(WiFi.status() != WL_CONNECTED){
+  if( ! wifiIsOperational()){
     WiFi.reconnect();
   }
 
@@ -194,7 +194,7 @@ declare_uploaders();
 
   if( (! RTCrunning) || powerFailRestart){
     uint32_t autoConnectTimeout = millis() + 3000UL;
-    while(WiFi.status() != WL_CONNECTED){
+    while( ! wifiIsOperational()){
       if(millis() > autoConnectTimeout){
         setLedCycle(LED_CONNECT_WIFI);
         WiFiManager wifiManager;
@@ -205,14 +205,14 @@ declare_uploaders();
         log("Connecting with WiFiManager.");
         wifiManager.autoConnect(ssid.c_str(), deviceName);
         endLedCycle();
-        while(WiFi.status() != WL_CONNECTED && RTCrunning == false){
+        while( ! wifiIsOperational() && RTCrunning == false){
           log("RTC not running, waiting for WiFi.");
           setLedCycle(LED_CONNECT_WIFI_NO_RTC);
           wifiManager.setConfigPortalTimeout(3600);
           wifiManager.autoConnect(ssid.c_str(), pwd.c_str());
           endLedCycle();
         }
-        if(! WiFi.isConnected()){
+        if( ! wifiIsOperational()){
           log("Did not connect after power-fail. Restarting to reset WiFi.");
           delay(500);
           ESP.restart();
@@ -286,7 +286,7 @@ void setLedState(){
   if(validConfig){
     digitalWrite(greenLed, HIGH);
     digitalWrite(redLed, LOW);
-    if( !RTCrunning || WiFi.status() != WL_CONNECTED){
+    if( !RTCrunning || ! wifiIsOperational()){
       digitalWrite(redLed, HIGH);
     }
   }

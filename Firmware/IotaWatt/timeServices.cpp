@@ -147,7 +147,7 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
     lastNTPupdate = UTCtime();
   }
 
-  if( ! WiFi.isConnected()){
+  if( ! wifiIsOperational()){
     trace(T_timeSync, 3);
     ntpCleanup();
     return UTCtime() + (RTCrunning ? 5 : 1);

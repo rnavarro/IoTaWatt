@@ -5,6 +5,32 @@
 #include <AddrList.h>
 #endif
 
+/********************************************************************************************
+ * wifiIsOperational - true when the network is usable.
+ *
+ * WiFi.status() only reports WL_CONNECTED when the SDK reaches STATION_GOT_IP,
+ * which requires an IPv4 address (DHCP lease or static config). On an
+ * IPv6-only network that never happens even though SLAAC connectivity is
+ * fully usable, so every WL_CONNECTED gate in the firmware would see the
+ * network as down forever (see esp8266/Arduino PR #5136 discussion - the
+ * core never addressed this). Treat a routable (non-link-local) address on
+ * the up station interface as operational too.
+ *******************************************************************************************/
+
+bool wifiIsOperational(){
+  if(WiFi.status() == WL_CONNECTED){
+    return true;
+  }
+#if LWIP_IPV6
+  for (auto entry : addrList){
+    if( ! entry.isLocal() && entry.ifnumber() == STATION_IF && entry.ifUp()){
+      return true;
+    }
+  }
+#endif
+  return false;
+}
+
 uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
   static uint32_t lastDisconnect = UTCtime();       // Time of last disconnect
   const uint32_t restartInterval = 60*60;           // Restart if disconnected this many seconds
@@ -15,7 +41,7 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
 #endif
 
   trace(T_WiFi,0);
-  if(WiFi.status() == WL_CONNECTED){
+  if(wifiIsOperational()){
     trace(T_WiFi,1);
     if(!wifiConnectTime){
       trace(T_WiFi,1);
