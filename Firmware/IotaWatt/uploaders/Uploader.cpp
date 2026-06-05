@@ -208,6 +208,13 @@ uint32_t Uploader::handle_HTTPpost_s(){
         trace(T_uploader,123);
         if( ! _request->open(_POSTrequest->method == method_POST ? "POST" : "GET", URL)){
             trace(T_uploader,123);
+                // Otherwise this retry loop is invisible: posting stops,
+                // status says running, nothing is logged. Say why once
+                // (statusMessage clears when a request completes).
+            if( ! _statusMessage){
+                _statusMessage = charstar(F("HTTP open failed (bad URL?): "), URL);
+                log("%s: %s", _id, _statusMessage);
+            }
             HTTPrelease(_HTTPtoken);
             delete _request;
             _request = nullptr;

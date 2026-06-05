@@ -46,12 +46,27 @@ bool    xurl::parse(const char* _url_){
         }    
 
             // parse domain
+            // A bracketed IPv6 literal ([2001:db8::1]) is kept brackets and
+            // all so build() reproduces a valid URL; without the bracket
+            // scan, the colons inside the literal would end the domain at
+            // the first one.
 
         loc = pos;
-        while(*loc != 0 && *loc != ':' && *loc != '/'){
+        if(*loc == '['){
+            while(*loc != 0 && *loc != ']'){
+                loc++;
+            }
+            if(*loc != ']'){
+                return false;
+            }
             loc++;
         }
-        
+        else {
+            while(*loc != 0 && *loc != ':' && *loc != '/'){
+                loc++;
+            }
+        }
+
         if(pos == loc){
             return false;
         }

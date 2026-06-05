@@ -566,6 +566,13 @@ uint32_t PVoutput_uploader::handle_HTTPpost_s(){
         URL = URL + "/service/r2/" + _POSTrequest->URI;
 
         if( ! request->open("POST", URL.c_str())){
+                // Otherwise this retry loop is invisible: posting stops,
+                // status says running, nothing is logged. Say why once
+                // (statusMessage clears when a request completes).
+            if( ! _statusMessage){
+                _statusMessage = charstar(F("HTTP open failed (bad URL?): "), URL.c_str());
+                log("%s: %s", _id, _statusMessage);
+            }
             HTTPrelease(_HTTPtoken);
             return UTCtime() + 10;
         }
