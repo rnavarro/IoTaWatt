@@ -3,6 +3,13 @@
 #include "splitstr.h"
 #include "uploaders/Uploader_Registry.h"
 
+// DEV ONLY - REMOVE BEFORE UPSTREAM PR. Unsigned OTA at POST /update
+// (digest auth, admin password) so development builds flash over the
+// network instead of the serial header. The official update channel
+// (updater.cpp) is untouched and still requires iotawatt.com signatures.
+#include <ESP8266HTTPUpdateServer.h>
+static ESP8266HTTPUpdateServer devUpdateServer;
+
 String formatHex(uint32_t data);
 void dropDead(void);
 void dropDead(const char*);
@@ -226,6 +233,9 @@ declare_uploaders();
  //*************************************** Start the web server ****************************
 
   server.on(F("/edit"), HTTP_POST, returnOK, handleFileUpload);
+      // DEV ONLY - REMOVE BEFORE UPSTREAM PR (see include above).
+      // curl --digest -u update:iotadev -F "image=@firmware.bin" http://<addr>/update
+  devUpdateServer.setup(&server, "/update", "update", "iotadev");
   server.onNotFound(handleRequest);
   const char * headerkeys[] = {"X-configSHA256"};
   size_t headerkeyssize = sizeof(headerkeys)/sizeof(char*);
