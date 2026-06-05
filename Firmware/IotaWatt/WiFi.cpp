@@ -7,6 +7,23 @@
 #endif
 #include <ESP8266LLMNR.h>
 
+#if LWIP_MDNS_RESPONDER
+/********************************************************************************************
+ * stationNetif - the up station interface, or nullptr.
+ *
+ * netif_default is only set when the SDK reaches STATION_GOT_IP, which
+ * requires an IPv4 address. On an IPv6-only network it stays NULL forever,
+ * so anything keyed to netif_default (like mDNS registration) silently
+ * never happens. Find the station netif directly instead.
+ *******************************************************************************************/
+static netif* stationNetif(){
+  for(netif* nif = netif_list; nif; nif = nif->next){
+    if(nif->num == STATION_IF && netif_is_up(nif)) return nif;
+  }
+  return nullptr;
+}
+#endif
+
 #if LWIP_IPV6
 /********************************************************************************************
  * preferredGlobalIPv6 - the station interface's usable global IPv6 address.
@@ -60,6 +77,9 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
   const uint32_t restartInterval = 60*60;           // Restart if disconnected this many seconds
   static bool mDNSstarted = false;
   static bool LLMNRstarted = false;
+#if LWIP_MDNS_RESPONDER
+  static netif* mdnsNetif = nullptr;                // The netif registered with mDNS
+#endif
 #if LWIP_IPV6
   static uint32_t ipv6LastPoll = 0;                 // Last SLAAC poll time
 #endif
@@ -88,9 +108,25 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
         mdns_resp_init();                           // Once per boot - a second call asserts
         mdnsInitDone = true;
       }
-      if(netif_default && mdns_resp_add_netif(netif_default, deviceName, 3600) == ERR_OK){
-        mdns_resp_add_service(netif_default, deviceName, "_http", DNSSD_PROTO_TCP, 80, 3600, NULL, NULL);
-        mDNSstarted = true;
+          // Register the station netif directly - NOT netif_default, which
+          // stays NULL on an IPv6-only network (no STATION_GOT_IP event)
+          // and would silently keep mDNS off the air (observed: ff02::fb
+          // probes from on-link host timed out, 2026-06-05).
+      netif* snif = stationNetif();
+      if(snif){
+        err_t merr = mdns_resp_add_netif(snif, deviceName, 3600);
+        if(merr == ERR_OK){
+          mdns_resp_add_service(snif, deviceName, "_http", DNSSD_PROTO_TCP, 80, 3600, NULL, NULL);
+          mdnsNetif = snif;
+          mDNSstarted = true;
+          log("mDNS: responder on netif %c%c%d", snif->name[0], snif->name[1], snif->num);
+        } else {
+          static bool addFailLogged = false;                  // Retried every dispatch - log once
+          if( ! addFailLogged){
+            addFailLogged = true;
+            log("mDNS: add_netif failed, err %d", (int)merr);
+          }
+        }
       }
     }
 #else
@@ -140,8 +176,8 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
             // with mDNS (and change on prefix renumbering). Our lwIP
             // build has no ext-status callback, so re-announce the
             // new AAAA explicitly.
-        if(mDNSstarted && netif_default){
-          mdns_resp_announce(netif_default);
+        if(mDNSstarted && mdnsNetif){
+          mdns_resp_announce(mdnsNetif);
         }
 #endif
       }
@@ -177,8 +213,9 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       }
 #endif
 #if LWIP_MDNS_RESPONDER
-      if(mDNSstarted && netif_default){
-        mdns_resp_remove_netif(netif_default);      // Re-add (and re-probe) after reconnect
+      if(mDNSstarted && mdnsNetif){
+        mdns_resp_remove_netif(mdnsNetif);          // Re-add (and re-probe) after reconnect
+        mdnsNetif = nullptr;
         mDNSstarted = false;
       }
 #endif
