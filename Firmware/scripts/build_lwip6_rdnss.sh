@@ -46,6 +46,13 @@ chmod +x "$SCRATCH/sdk/lwip2/builder/makefiles/"* 2>/dev/null || true
 git clone --depth 1 --branch "$LWIP_REF" \
     https://github.com/lwip-tcpip/lwip.git "$SCRATCH/sdk/lwip2/builder/lwip2-src"
 
+# Our lwIP source patches (beyond the builder's own patches/ set, which
+# the Makefile applies automatically). mDNS v6-only probe fix: see the
+# header of each patch file for the mechanism.
+for P in "$(dirname "$0")/../patches"/lwip-*.patch; do
+    patch -d "$SCRATCH/sdk/lwip2/builder/lwip2-src" -p1 < "$P"
+done
+
 LWIPOPTS="$SCRATCH/sdk/lwip2/builder/glue-lwip/arduino/lwipopts.h"
 
 # Knob 1: enable RDNSS (DNS servers from Router Advertisements).

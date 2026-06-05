@@ -1,0 +1,55 @@
+lwIP STABLE-2_1_3 mdns_probe() gates ALL probing on the netif having an
+IPv4 address ("if ipv4 wait with probing until address is set"). On an
+IPv6-only network the address stays 0.0.0.0 forever, probes_sent never
+increments, probing_state never reaches MDNS_PROBING_COMPLETE, and
+mdns_handle_question() drops every query (multicast AND unicast) without
+answering. Hardware-observed 2026-06-05: registration succeeded
+("mDNS: responder on netif st0") yet all ff02::fb and unicast :5353
+queries timed out. Probe each family independently: v4 once an address
+is set, v6 once the link-local completes DAD.
+
+--- a/src/apps/mdns/mdns.c
++++ b/src/apps/mdns/mdns.c
+@@ -2029,19 +2029,34 @@
+       mdns_name_result_cb(netif, MDNS_PROBING_SUCCESSFUL);
+     }
+   } else {
++    u8_t probe_sent = 0;
++    u8_t probe_fail = 0;
+ #if LWIP_IPV4
+-    /*if ipv4 wait with probing until address is set*/
+-    if (!ip4_addr_isany_val(*netif_ip4_addr(netif)) &&
+-        mdns_send_probe(netif, IP4_ADDR_ANY) == ERR_OK)
++    /* probe over IPv4 once an address is set */
++    if (!ip4_addr_isany_val(*netif_ip4_addr(netif))) {
++      if (mdns_send_probe(netif, IP4_ADDR_ANY) == ERR_OK) {
++        probe_sent = 1;
++      } else {
++        probe_fail = 1;
++      }
++    }
+ #endif
+-    {
+ #if LWIP_IPV6
+-      if (mdns_send_probe(netif, IP6_ADDR_ANY) == ERR_OK)
+-#endif
+-      {
+-        mdns->probes_sent++;
++    /* probe over IPv6 once the link-local address is usable. Do not
++       gate this on IPv4: on an IPv6-only network no IPv4 address ever
++       arrives, and the original gating left probing_state stuck at
++       ONGOING forever - the responder never answered any query. */
++    if (ip6_addr_isvalid(netif_ip6_addr_state(netif, 0))) {
++      if (mdns_send_probe(netif, IP6_ADDR_ANY) == ERR_OK) {
++        probe_sent = 1;
++      } else {
++        probe_fail = 1;
+       }
+     }
++#endif
++    if (probe_sent && !probe_fail) {
++      mdns->probes_sent++;
++    }
+     sys_timeout(MDNS_PROBE_DELAY_MS, mdns_probe, netif);
+   }
+ }
