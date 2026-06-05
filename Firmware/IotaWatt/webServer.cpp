@@ -59,6 +59,8 @@ const char txtPlain_P[] PROGMEM = "text/plain";
 const char appJson_P[]  PROGMEM = "application/json";
 const char txtJson_P[]  PROGMEM = "text/json";
 
+void handleWifiSet();                   // DEV ONLY - REMOVE BEFORE UPSTREAM PR
+
 bool authenticate(authLevel level){
   if(auth(level)){
     return true;
@@ -89,6 +91,7 @@ void handleRequest(){
   if(serverOn(authUser,  F("/query"), HTTP_GET, handleQuery)) return;
   if(serverOn(authUser,  F("/DSTtest"), HTTP_GET, handleDSTtest)) return;
   if(serverOn(authAdmin, F("/update"), HTTP_GET, handleUpdate)) return;
+  if(serverOn(authAdmin, F("/wifiset"), HTTP_GET, handleWifiSet)) return;   // DEV ONLY - REMOVE BEFORE UPSTREAM PR
 
 
   if(loadFromSdCard(uri)){
@@ -118,6 +121,26 @@ void returnOK() {
 
 void returnFail(String msg, int HTTPcode) {
   server.send(HTTPcode, txtPlain_P, msg + "\r\n");
+}
+
+    // DEV ONLY - REMOVE BEFORE UPSTREAM PR. Remote WiFi credential change
+    // for bench network moves: WiFiManager only runs at boot when the
+    // stored network is unreachable, so a reachable device has no other
+    // way to switch SSIDs without physical access.
+    // curl --digest -u admin:<pass> "http://<addr>/wifiset?ssid=X&pass=Y"
+
+void handleWifiSet(){
+  String ssid = server.arg(F("ssid"));
+  String pass = server.arg(F("pass"));
+  if( ! ssid.length()){
+    returnFail("ssid required", 400);
+    return;
+  }
+  server.send(200, txtPlain_P, "switching WiFi to " + ssid + "\r\n");
+  log("webServer: WiFi credential change, SSID %s", ssid.c_str());
+  delay(500);                           // Let the response flush before the AP drops
+  WiFi.persistent(true);
+  WiFi.begin(ssid.c_str(), pass.c_str());
 }
 
 bool loadFromSdCard(String path){
