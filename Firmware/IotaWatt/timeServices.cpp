@@ -1,9 +1,12 @@
 #include "IotaWatt.h"
+extern "C" {
+  #include "lwip/udp.h"
+  #include "lwip/dns.h"
+}
 
 #define NTP2018 (1514796044UL + SECONDS_PER_SEVENTY_YEARS)
 #define NTP2028 (1830328844UL + SECONDS_PER_SEVENTY_YEARS)
 
-#define ntpPort 2390 
   struct ntpPacket {  /* courtesy Eugene Ma */
     uint8_t flags;
     uint8_t stratum;
@@ -42,30 +45,91 @@
 /********************************************************************************************
  * timeSync is a SERVICE that periodically (timeSynchInterval seconds) attempts to get
  * the NTP time from the internet, synchronize to that time and update the RTC.
- * The NTP request is blocking.
- * Failed attempts are just retried.... forever. 
+ * The exchange runs on a raw lwIP UDP pcb created with IPADDR_TYPE_ANY, so it works
+ * over IPv4 or IPv6 per the resolved server address (the configured dnsprefer order).
+ * Resolution and the response wait are asynchronous - nothing here blocks the
+ * cooperative scheduler. Failed attempts are just retried.... forever.
  * Service logs when no reality check after 24 hours.
  *******************************************************************************************/
- 
+
+enum ntpState_t {ntpIdle, ntpResolve, ntpWait};
+static ntpState_t        ntpState = ntpIdle;
+static struct udp_pcb*   ntpPcb = nullptr;
+static ip_addr_t         ntpServerAddr;
+static volatile bool     ntpResolved = false;
+static volatile bool     ntpResolveFail = false;
+static volatile bool     ntpResponse = false;
+static volatile uint32_t ntpRecvMillis = 0;
+static ntpPacket         ntpRespPacket;
+
+static void ntpCleanup(){
+  if(ntpPcb){
+    udp_remove(ntpPcb);
+    ntpPcb = nullptr;
+  }
+  ntpState = ntpIdle;
+}
+
+static void ntpDnsFound(const char* name, const ip_addr_t* ipaddr, void* arg){
+  if(ipaddr){
+    ip_addr_copy(ntpServerAddr, *ipaddr);
+    ntpResolved = true;
+  } else {
+    ntpResolveFail = true;
+  }
+}
+
+static void ntpRecvCB(void* arg, struct udp_pcb* pcb, struct pbuf* p, const ip_addr_t* addr, u16_t port){
+  if(p){
+    if(p->tot_len >= sizeof(ntpPacket) && ! ntpResponse){
+      pbuf_copy_partial(p, &ntpRespPacket, sizeof(ntpPacket), 0);
+      ntpRecvMillis = millis();
+      ntpResponse = true;
+    }
+    pbuf_free(p);
+  }
+}
+
+static bool ntpSend(){
+  if( ! ntpPcb){
+    ntpPcb = udp_new_ip_type(IPADDR_TYPE_ANY);
+    if( ! ntpPcb){
+      return false;
+    }
+    udp_bind(ntpPcb, IP_ANY_TYPE, 0);
+    udp_recv(ntpPcb, ntpRecvCB, nullptr);
+  }
+  ntpPacket packet;
+  uint32_t sendMillis = millis();
+  packet.trans_ts_sec = sendMillis / 1000;
+  packet.trans_ts_frac = sendMillis % 1000;
+  struct pbuf* p = pbuf_alloc(PBUF_TRANSPORT, sizeof(ntpPacket), PBUF_RAM);
+  if( ! p){
+    return false;
+  }
+  memcpy(p->payload, &packet, sizeof(ntpPacket));
+  err_t err = udp_sendto(ntpPcb, p, &ntpServerAddr, 123);
+  pbuf_free(p);
+  return err == ERR_OK;
+}
+
 uint32_t timeSync(struct serviceBlock* _serviceBlock) {
-  WiFiUDP udp;
   static uint32_t lastNTPupdate = 0;
   static bool started = false;
   static uint32_t prevDiff = 0;
   static IPAddress prevIP;
-  static uint8_t  serverIndex = 0;     
-  uint32_t sendMillis = 0;
-  uint32_t origin_sec = 0;
-  uint32_t origin_frac = 0;
-  IPAddress timeServerIP;
+  static uint8_t  serverIndex = 0;
+  static uint32_t sendMillis = 0;
+  static uint32_t origin_sec = 0;
+  static uint32_t origin_frac = 0;
 
   trace(T_timeSync, 0);
   if( ! started){
     log("timeSync: service started.");
     lastNTPupdate = UTCtime();
-    started = true; 
-  } 
- 
+    started = true;
+  }
+
           // The ms clock will rollover after ~49 days.  To be on the safe side,
           // restart the ESP after about 42 days to reset the ms clock.
 
@@ -78,64 +142,89 @@ uint32_t timeSync(struct serviceBlock* _serviceBlock) {
           // Log if no time update for 24 hours.
 
   trace(T_timeSync, 2);
-  if(UTCtime() - lastNTPupdate > 86400UL){ 
+  if(UTCtime() - lastNTPupdate > 86400UL){
     log("timeSync: No time update in last 24 hours.");
     lastNTPupdate = UTCtime();
   }
 
-  if( ! WiFi.isConnected()){ 
+  if( ! WiFi.isConnected()){
     trace(T_timeSync, 3);
+    ntpCleanup();
     return UTCtime() + (RTCrunning ? 5 : 1);
   }
 
-        // Send an SNTP request.
+        // Start an SNTP exchange: resolve a server from the pool.
+        // Resolution order follows the configured preference; the ANY-type
+        // pcb sends to whichever family the answer is.
 
-  trace(T_timeSync, 31);
-  String serverName("time1.google.com");
-  serverName[4] += (++serverIndex % 4);
-        // The Google time servers have AAAA records. Pin resolution to A
-        // records on dual-stack builds: NTP here runs over WiFiUDP, whose
-        // pcb is IPv4-typed, so an IPv6 answer would fail to send.
-#if LWIP_IPV4 && LWIP_IPV6
-  if(WiFi.hostByName(serverName.c_str(), timeServerIP, 10000, DNSResolveType::DNS_AddrType_IPv4) == 1){
+  if(ntpState == ntpIdle){
+    trace(T_timeSync, 31);
+    String serverName("time1.google.com");
+    serverName[4] += (++serverIndex % 4);
+    ntpResolved = ntpResolveFail = false;
+#if LWIP_IPV6
+    u8_t addrtype = AsyncClient::getDnsAddrType();
 #else
-  if(WiFi.hostByName(serverName.c_str(), timeServerIP) == 1){    // get a random server from the pool
+    u8_t addrtype = LWIP_DNS_ADDRTYPE_DEFAULT;
 #endif
-    trace(T_timeSync, 32);
-    ntpPacket packet;
     sendMillis = millis();
-    packet.trans_ts_sec = origin_sec = sendMillis / 1000;
-    packet.trans_ts_frac = origin_frac = sendMillis % 1000;
-    udp.begin(ntpPort);
-    udp.beginPacket(timeServerIP, 123);
-    udp.write((uint8_t*)&packet, sizeof(ntpPacket));        // send an NTP packet to a time server
-    udp.endPacket();
-  } 
-  else {
-    trace(T_timeSync, 33);
-    return UTCtime() + (RTCrunning ? 60 : 5);
-  }
-  
-        // Poll for completion
-        // This is a blocking event, so limit to three seconds.
-
-  trace(T_timeSync, 4);
-  while( ! udp.parsePacket()){
-    if(millis() - sendMillis > (RTCrunning ? 3000 : 10000)){
-      trace(T_timeSync, 42);
-      udp.stop();
+    err_t err = dns_gethostbyname_addrtype(serverName.c_str(), &ntpServerAddr,
+        (dns_found_callback)&ntpDnsFound, nullptr, addrtype);
+    if(err == ERR_OK){
+      ntpResolved = true;
+    } else if(err != ERR_INPROGRESS){
+      trace(T_timeSync, 33);
       return UTCtime() + (RTCrunning ? 60 : 5);
     }
+    ntpState = ntpResolve;
+  }
+
+        // Waiting on DNS; when resolved, send the request.
+
+  if(ntpState == ntpResolve){
+    trace(T_timeSync, 34);
+    if(ntpResolveFail || (! ntpResolved && millis() - sendMillis > 10000)){
+      trace(T_timeSync, 33);
+      ntpState = ntpIdle;
+      return UTCtime() + (RTCrunning ? 60 : 5);
+    }
+    if( ! ntpResolved){
+      return UTCtime() + 1;
+    }
+    trace(T_timeSync, 32);
+    ntpResponse = false;
+    sendMillis = millis();
+    origin_sec = sendMillis / 1000;
+    origin_frac = sendMillis % 1000;
+    if( ! ntpSend()){
+      ntpCleanup();
+      return UTCtime() + (RTCrunning ? 60 : 5);
+    }
+    ntpState = ntpWait;
+    return UTCtime() + 1;
+  }
+
+        // Waiting on the response (the recv callback captures it).
+
+  trace(T_timeSync, 4);
+  if( ! ntpResponse){
+    if(millis() - sendMillis > (RTCrunning ? 3000 : 10000)){
+      trace(T_timeSync, 42);
+      ntpCleanup();
+      return UTCtime() + (RTCrunning ? 60 : 5);
+    }
+    return UTCtime() + 1;
   }
 
         // Have a packet,
         // read and reformat to little endian and make fractions milliseconds
 
   trace(T_timeSync, 5);
-  uint32_t recvMillis = millis();
-  ntpPacket packet;
-  size_t packetSize = udp.read((uint8_t*)&packet,sizeof(ntpPacket));
-  udp.stop();
+  uint32_t recvMillis = ntpRecvMillis;
+  ntpPacket packet = ntpRespPacket;
+  IPAddress timeServerIP(ntpServerAddr);
+  size_t packetSize = sizeof(ntpPacket);
+  ntpCleanup();
   packet.recv_ts_sec = littleEndian(packet.recv_ts_sec);
   packet.recv_ts_frac = littleEndian(packet.recv_ts_frac) / 4294967UL;
   packet.trans_ts_sec = littleEndian(packet.trans_ts_sec);

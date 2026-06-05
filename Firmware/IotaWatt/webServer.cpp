@@ -680,6 +680,14 @@ void handleStatus(){
         wifi.set(F("channel"),WiFi.channel());
         wifi.set(F("RSSI"),WiFi.RSSI());
         wifi.set(F("mac"), WiFi.macAddress());
+        JsonArray& dns = jsonBuffer.createArray();
+        for(int i=0; i<2; i++){
+          IPAddress server = WiFi.dnsIP(i);
+          if(server.isSet()){
+            dns.add(server.toString());
+          }
+        }
+        wifi.set(F("dns"), dns);
       }
       root.set(F("wifi"),wifi);
     }

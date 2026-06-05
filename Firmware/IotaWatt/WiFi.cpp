@@ -40,6 +40,21 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
         LLMNRstarted = true;
       }
     }
+        // Log resolver changes. Servers arrive via DHCPv4 and, on the
+        // RDNSS-enabled lwIP build, via IPv6 Router Advertisements
+        // (RFC 8106) - this makes both visible.
+    {
+      static IPAddress lastDns[2];
+      IPAddress dns0 = WiFi.dnsIP(0);
+      IPAddress dns1 = WiFi.dnsIP(1);
+      if(dns0 != lastDns[0] || dns1 != lastDns[1]){
+        lastDns[0] = dns0;
+        lastDns[1] = dns1;
+        log("WiFi: DNS servers %s, %s",
+            dns0.isSet() ? dns0.toString().c_str() : "none",
+            dns1.isSet() ? dns1.toString().c_str() : "none");
+      }
+    }
 #if LWIP_IPV6
         // SLAAC assigns global IPv6 addresses asynchronously, seconds after
         // DHCP, and there is no got-IPv6 event on the ESP8266. Poll every
