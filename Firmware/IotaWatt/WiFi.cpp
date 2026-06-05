@@ -1,5 +1,10 @@
 #include "IotaWatt.h"
+#if LWIP_MDNS_RESPONDER
+#include <lwip/netif.h>
+#include <lwip/apps/mdns.h>
+#else
 #include "ESP8266mDNS.h"
+#endif
 #include <ESP8266LLMNR.h>
 #if LWIP_IPV6
 #include <AddrList.h>
@@ -52,6 +57,24 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
       WiFi.hostname(deviceName);
       log("WiFi connected. SSID=%s, IP=%s, channel=%d, RSSI %ddb", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str(), WiFi.channel(), WiFi.RSSI());
     }
+#if LWIP_MDNS_RESPONDER
+        // lwIP's native mDNS responder (compiled into the rebuilt
+        // liblwip6, see scripts/build_lwip6_rdnss.sh). Unlike LEAmDNS it
+        // answers over both IPv4 (224.0.0.251) and IPv6 (ff02::fb) and
+        // serves A + AAAA records. Event-driven inside lwIP - no
+        // update() polling.
+    if( ! mDNSstarted){
+      static bool mdnsInitDone = false;
+      if( ! mdnsInitDone){
+        mdns_resp_init();                           // Once per boot - a second call asserts
+        mdnsInitDone = true;
+      }
+      if(netif_default && mdns_resp_add_netif(netif_default, deviceName, 3600) == ERR_OK){
+        mdns_resp_add_service(netif_default, deviceName, "_http", DNSSD_PROTO_TCP, 80, 3600, NULL, NULL);
+        mDNSstarted = true;
+      }
+    }
+#else
     if( ! mDNSstarted){
       if (MDNS.begin(deviceName)) {
         MDNS.addService("http", "tcp", 80);
@@ -61,6 +84,7 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
     else {
       MDNS.update();
     }
+#endif
     if( ! LLMNRstarted){
       if (LLMNR.begin(deviceName)){
         LLMNRstarted = true;
@@ -94,6 +118,15 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
           if(current != localIPv6){
             localIPv6 = current;
             log("WiFi: IPv6 global address %s", localIPv6.toString().c_str());
+#if LWIP_MDNS_RESPONDER
+                // SLAAC addresses arrive after the netif was registered
+                // with mDNS (and change on prefix renumbering). Our lwIP
+                // build has no ext-status callback, so re-announce the
+                // new AAAA explicitly.
+            if(mDNSstarted && netif_default){
+              mdns_resp_announce(netif_default);
+            }
+#endif
           }
           break;
         }
@@ -110,6 +143,12 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
 #if LWIP_IPV6
       localIPv6 = IPAddress();                      // Re-detect (and re-log) after reconnect:
       ipv6LastPoll = 0;                             // SLAAC recovery is not event-driven
+#endif
+#if LWIP_MDNS_RESPONDER
+      if(mDNSstarted && netif_default){
+        mdns_resp_remove_netif(netif_default);      // Re-add (and re-probe) after reconnect
+        mDNSstarted = false;
+      }
 #endif
       log("WiFi disconnected.");
     }
