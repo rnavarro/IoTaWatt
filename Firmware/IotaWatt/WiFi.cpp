@@ -1,13 +1,35 @@
 #include "IotaWatt.h"
-#if LWIP_MDNS_RESPONDER
 #include <lwip/netif.h>
+#if LWIP_MDNS_RESPONDER
 #include <lwip/apps/mdns.h>
 #else
 #include "ESP8266mDNS.h"
 #endif
 #include <ESP8266LLMNR.h>
+
 #if LWIP_IPV6
-#include <AddrList.h>
+/********************************************************************************************
+ * preferredGlobalIPv6 - the station interface's usable global IPv6 address.
+ *
+ * Returns the first PREFERRED (DAD complete, not deprecated) non-link-local
+ * address on the up station interface, or an unset IPAddress if none.
+ * Address state matters: a TENTATIVE address (DAD still in flight) is not
+ * yet usable, and a DEPRECATED one (prefix being retired via RA lifetimes)
+ * is on its way out - neither should drive localIPv6, which feeds the
+ * localAccess auth bypass in auth.cpp.
+ *******************************************************************************************/
+static IPAddress preferredGlobalIPv6(){
+  for(netif* nif = netif_list; nif; nif = nif->next){
+    if(nif->num != STATION_IF || !netif_is_up(nif)) continue;
+    for(int s = 0; s < LWIP_IPV6_NUM_ADDRESSES; s++){
+      if(ip6_addr_ispreferred(netif_ip6_addr_state(nif, s)) &&
+         !ip6_addr_islinklocal(netif_ip6_addr(nif, s))){
+        return IPAddress(netif_ip_addr6(nif, s));
+      }
+    }
+  }
+  return IPAddress();
+}
 #endif
 
 /********************************************************************************************
@@ -18,8 +40,8 @@
  * IPv6-only network that never happens even though SLAAC connectivity is
  * fully usable, so every WL_CONNECTED gate in the firmware would see the
  * network as down forever (see esp8266/Arduino PR #5136 discussion - the
- * core never addressed this). Treat a routable (non-link-local) address on
- * the up station interface as operational too.
+ * core never addressed this). Treat a usable (preferred, non-link-local)
+ * address on the up station interface as operational too.
  *******************************************************************************************/
 
 bool wifiIsOperational(){
@@ -27,13 +49,10 @@ bool wifiIsOperational(){
     return true;
   }
 #if LWIP_IPV6
-  for (auto entry : addrList){
-    if( ! entry.isLocal() && entry.ifnumber() == STATION_IF && entry.ifUp()){
-      return true;
-    }
-  }
-#endif
+  return preferredGlobalIPv6().isSet();
+#else
   return false;
+#endif
 }
 
 uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
@@ -112,24 +131,19 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
         // changes (ISP renumbering, RA changes after AP reconnect).
     if( ! localIPv6.isSet() || (UTCtime() - ipv6LastPoll) >= 60){
       ipv6LastPoll = UTCtime();
-      for (auto entry : addrList){
-        if(entry.isV6() && !entry.isLocal() && entry.ifUp()){
-          IPAddress current = entry.addr();
-          if(current != localIPv6){
-            localIPv6 = current;
-            log("WiFi: IPv6 global address %s", localIPv6.toString().c_str());
+      IPAddress current = preferredGlobalIPv6();
+      if(current.isSet() && current != localIPv6){
+        localIPv6 = current;
+        log("WiFi: IPv6 global address %s", localIPv6.toString().c_str());
 #if LWIP_MDNS_RESPONDER
-                // SLAAC addresses arrive after the netif was registered
-                // with mDNS (and change on prefix renumbering). Our lwIP
-                // build has no ext-status callback, so re-announce the
-                // new AAAA explicitly.
-            if(mDNSstarted && netif_default){
-              mdns_resp_announce(netif_default);
-            }
-#endif
-          }
-          break;
+            // SLAAC addresses arrive after the netif was registered
+            // with mDNS (and change on prefix renumbering). Our lwIP
+            // build has no ext-status callback, so re-announce the
+            // new AAAA explicitly.
+        if(mDNSstarted && netif_default){
+          mdns_resp_announce(netif_default);
         }
+#endif
       }
     }
 #endif
