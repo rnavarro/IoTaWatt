@@ -157,6 +157,24 @@ uint32_t WiFiService(struct serviceBlock* _serviceBlock) {
 #if LWIP_IPV6
       localIPv6 = IPAddress();                      // Re-detect (and re-log) after reconnect:
       ipv6LastPoll = 0;                             // SLAAC recovery is not event-driven
+          // Invalidate global addresses from the previous network. lwIP
+          // keeps SLAAC addresses and their lifetimes across
+          // reassociation, so after a move to a different SSID/prefix
+          // the stale GUA stays PREFERRED for hours: it wins the
+          // localIPv6 poll, floats wifiIsOperational(), feeds the auth
+          // /64 bypass with the old prefix, and poisons source-address
+          // selection while being unroutable on the new link
+          // (hardware-observed on a WLAN move, 2026-06-05). Link-local
+          // stays; SLAAC re-acquires from the next RA.
+      for(netif* nif = netif_list; nif; nif = nif->next){
+        if(nif->num != STATION_IF) continue;
+        for(int s = 0; s < LWIP_IPV6_NUM_ADDRESSES; s++){
+          if( ! ip6_addr_islinklocal(netif_ip6_addr(nif, s)) &&
+              netif_ip6_addr_state(nif, s) != IP6_ADDR_INVALID){
+            netif_ip6_addr_set_state(nif, s, IP6_ADDR_INVALID);
+          }
+        }
+      }
 #endif
 #if LWIP_MDNS_RESPONDER
       if(mDNSstarted && netif_default){
